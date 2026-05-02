@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -13,10 +14,14 @@ import uuid
 import bcrypt
 import jwt
 import json
+import csv
+import io
+import secrets
+import asyncio
 import aiofiles
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Set
 from bson import ObjectId
 
 # MongoDB connection
@@ -39,6 +44,113 @@ logger = logging.getLogger(__name__)
 # Upload directory
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# ============ WEBSOCKET MANAGER ============
+
+class ConnectionManager:
+    """Manages WebSocket connections per trade_id"""
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, trade_id: str):
+        await websocket.accept()
+        if trade_id not in self.active_connections:
+            self.active_connections[trade_id] = []
+        self.active_connections[trade_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, trade_id: str):
+        if trade_id in self.active_connections:
+            self.active_connections[trade_id] = [
+                conn for conn in self.active_connections[trade_id] if conn != websocket
+            ]
+            if not self.active_connections[trade_id]:
+                del self.active_connections[trade_id]
+
+    async def broadcast_to_trade(self, trade_id: str, message: dict):
+        if trade_id in self.active_connections:
+            dead = []
+            for connection in self.active_connections[trade_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    dead.append(connection)
+            for d in dead:
+                self.disconnect(d, trade_id)
+
+ws_manager = ConnectionManager()
+
+# ============ EMAIL SERVICE ============
+
+async def send_email(to_email: str, subject: str, body: str):
+    """Send email notification. Uses SMTP if configured, otherwise logs to console."""
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    from_email = os.environ.get("SMTP_FROM", "noreply@chainswap.com")
+
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import aiosmtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            msg = MIMEMultipart()
+            msg["From"] = from_email
+            msg["To"] = to_email
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "html"))
+
+            await aiosmtplib.send(
+                msg,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user,
+                password=smtp_pass,
+                use_tls=True,
+            )
+            logger.info(f"Email sent to {to_email}: {subject}")
+        except Exception as e:
+            logger.error(f"Email send failed to {to_email}: {e}")
+    else:
+        logger.info(f"[EMAIL MOCK] To: {to_email} | Subject: {subject} | Body: {body[:100]}...")
+
+async def send_trade_email(user_id: str, event: str, trade_data: dict):
+    """Send trade-related email notification"""
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        return
+    
+    templates = {
+        "trade_initiated": {
+            "subject": "New Trade Initiated - ChainSwap",
+            "body": f"<h2>New Trade Initiated</h2><p>A trade of {trade_data.get('amount_usdt', 0)} USDT (₹{trade_data.get('amount_inr', 0):.2f}) has been initiated.</p><p>Trade ID: {trade_data.get('id', 'N/A')}</p><p>Please check your ChainSwap dashboard.</p>"
+        },
+        "payment_sent": {
+            "subject": "Payment Marked as Sent - ChainSwap",
+            "body": f"<h2>Payment Sent</h2><p>The buyer has marked the payment as sent for trade {trade_data.get('id', 'N/A')[:8]}.</p><p>Amount: ₹{trade_data.get('amount_inr', 0):.2f}</p><p>Please verify and confirm.</p>"
+        },
+        "trade_completed": {
+            "subject": "Trade Completed - ChainSwap",
+            "body": f"<h2>Trade Completed!</h2><p>Trade {trade_data.get('id', 'N/A')[:8]} has been completed successfully.</p><p>Amount: {trade_data.get('amount_usdt', 0)} USDT</p>"
+        },
+        "dispute_raised": {
+            "subject": "Dispute Raised - ChainSwap",
+            "body": f"<h2>Dispute Raised</h2><p>A dispute has been raised on trade {trade_data.get('id', 'N/A')[:8]}.</p><p>Reason: {trade_data.get('dispute_reason', 'N/A')}</p><p>Our admin team will review and resolve.</p>"
+        },
+        "dispute_resolved": {
+            "subject": "Dispute Resolved - ChainSwap",
+            "body": f"<h2>Dispute Resolved</h2><p>The dispute on trade {trade_data.get('id', 'N/A')[:8]} has been resolved by admin.</p><p>Note: {trade_data.get('admin_note', 'N/A')}</p>"
+        },
+        "trade_expired": {
+            "subject": "Trade Expired - ChainSwap",
+            "body": f"<h2>Trade Expired</h2><p>Trade {trade_data.get('id', 'N/A')[:8]} has expired due to payment window timeout.</p><p>The USDT has been returned to the offer.</p>"
+        },
+    }
+    
+    template = templates.get(event)
+    if template:
+        await send_email(user["email"], template["subject"], template["body"])
 
 # ============ HELPERS ============
 
@@ -241,6 +353,66 @@ async def refresh_token(request: Request, response: Response):
         return {"message": "Token refreshed"}
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+# ============ FORGOT PASSWORD ============
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If an account with that email exists, a reset link has been sent."}
+    
+    # Generate reset token
+    reset_token = secrets.token_urlsafe(32)
+    await db.password_reset_tokens.insert_one({
+        "user_id": str(user["_id"]),
+        "token": reset_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "used": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+    
+    # Send email with reset link
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+    await send_email(
+        email,
+        "Password Reset - ChainSwap",
+        f"<h2>Password Reset</h2><p>Click the link below to reset your password:</p><p><a href='{reset_link}'>{reset_link}</a></p><p>This link expires in 1 hour.</p><p>If you didn't request this, ignore this email.</p>"
+    )
+    
+    logger.info(f"Password reset link: {reset_link}")
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    token_doc = await db.password_reset_tokens.find_one({
+        "token": req.token,
+        "used": False,
+        "expires_at": {"$gt": datetime.now(timezone.utc)}
+    })
+    
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    # Update password
+    await db.users.update_one(
+        {"_id": ObjectId(token_doc["user_id"])},
+        {"$set": {"password_hash": hash_password(req.password)}}
+    )
+    
+    # Mark token as used
+    await db.password_reset_tokens.update_one(
+        {"_id": token_doc["_id"]},
+        {"$set": {"used": True}}
+    )
+    
+    return {"message": "Password reset successfully. You can now login with your new password."}
 
 # ============ OFFERS ROUTES ============
 
@@ -556,6 +728,20 @@ async def update_trade_status(trade_id: str, req: UpdateTradeStatusRequest, requ
         "created_at": datetime.now(timezone.utc),
     })
     
+    # WebSocket broadcast
+    await ws_manager.broadcast_to_trade(trade_id, {
+        "type": "status_update",
+        "status": req.status,
+        "message": notification_msg,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    
+    # Email notification
+    trade_email_data = {"id": trade_id, "amount_usdt": trade["amount_usdt"], "amount_inr": trade["amount_inr"], "dispute_reason": req.dispute_reason}
+    email_event_map = {"PAYMENT_SENT": "payment_sent", "COMPLETED": "trade_completed", "DISPUTED": "dispute_raised"}
+    if req.status in email_event_map:
+        asyncio.create_task(send_trade_email(notify_user, email_event_map[req.status], trade_email_data))
+    
     return {"message": f"Trade status updated to {req.status}"}
 
 @api_router.post("/trades/{trade_id}/upload-proof")
@@ -637,7 +823,75 @@ async def send_message(trade_id: str, req: SendMessageRequest, request: Request)
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.messages.insert_one(msg_doc)
+    
+    # WebSocket broadcast
+    await ws_manager.broadcast_to_trade(trade_id, {
+        "type": "new_message",
+        "id": str(result.inserted_id),
+        "sender_id": user["id"],
+        "sender_username": user["username"],
+        "message": req.message,
+        "message_type": req.message_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    
     return {"id": str(result.inserted_id), "message": "Message sent"}
+
+# ============ WEBSOCKET ENDPOINT ============
+
+@app.websocket("/ws/trade/{trade_id}")
+async def websocket_trade(websocket: WebSocket, trade_id: str):
+    """WebSocket endpoint for real-time trade chat and status updates"""
+    # Authenticate via query param token
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+    
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload["sub"]
+    except jwt.InvalidTokenError:
+        await websocket.close(code=4001)
+        return
+    
+    # Verify user is part of this trade
+    trade = await db.trades.find_one({"_id": ObjectId(trade_id)})
+    if not trade or user_id not in [trade["buyer_id"], trade["seller_id"]]:
+        await websocket.close(code=4003)
+        return
+    
+    await ws_manager.connect(websocket, trade_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Handle incoming messages from WebSocket
+            try:
+                msg_data = json.loads(data)
+                if msg_data.get("type") == "message":
+                    user = await db.users.find_one({"_id": ObjectId(user_id)}, {"_id": 0, "username": 1})
+                    msg_doc = {
+                        "trade_id": trade_id,
+                        "sender_id": user_id,
+                        "message": msg_data.get("message", ""),
+                        "message_type": "text",
+                        "is_read": False,
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                    result = await db.messages.insert_one(msg_doc)
+                    await ws_manager.broadcast_to_trade(trade_id, {
+                        "type": "new_message",
+                        "id": str(result.inserted_id),
+                        "sender_id": user_id,
+                        "sender_username": user.get("username", "Unknown") if user else "Unknown",
+                        "message": msg_data.get("message", ""),
+                        "message_type": "text",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, trade_id)
 
 # ============ REVIEWS ROUTES ============
 
@@ -938,6 +1192,150 @@ async def admin_delete_offer(offer_id: str, request: Request):
     await db.offers.delete_one({"_id": ObjectId(offer_id)})
     return {"message": "Offer deleted"}
 
+# ============ CSV EXPORT ============
+
+@api_router.get("/admin/export/trades")
+async def export_trades_csv(request: Request, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    await get_admin_user(request)
+    
+    query = {}
+    if start_date:
+        query["created_at"] = {"$gte": datetime.fromisoformat(start_date)}
+    if end_date:
+        if "created_at" in query:
+            query["created_at"]["$lte"] = datetime.fromisoformat(end_date)
+        else:
+            query["created_at"] = {"$lte": datetime.fromisoformat(end_date)}
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Trade ID", "Buyer", "Seller", "Amount USDT", "Amount INR", "Price INR", "Payment Method", "Network", "Status", "Created At", "Completed At"])
+    
+    async for trade in db.trades.find(query).sort("created_at", -1).limit(5000):
+        buyer = await db.users.find_one({"_id": ObjectId(trade["buyer_id"])}, {"_id": 0, "username": 1})
+        seller = await db.users.find_one({"_id": ObjectId(trade["seller_id"])}, {"_id": 0, "username": 1})
+        writer.writerow([
+            str(trade["_id"]),
+            buyer.get("username", "Unknown") if buyer else "Unknown",
+            seller.get("username", "Unknown") if seller else "Unknown",
+            trade.get("amount_usdt", 0),
+            trade.get("amount_inr", 0),
+            trade.get("price_inr", 0),
+            trade.get("payment_method", ""),
+            trade.get("network", ""),
+            trade.get("status", ""),
+            trade.get("created_at", "").isoformat() if isinstance(trade.get("created_at"), datetime) else str(trade.get("created_at", "")),
+            trade.get("completed_at", "").isoformat() if isinstance(trade.get("completed_at"), datetime) else str(trade.get("completed_at", "")),
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=trades_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"}
+    )
+
+@api_router.get("/admin/export/users")
+async def export_users_csv(request: Request):
+    await get_admin_user(request)
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["User ID", "Username", "Email", "Role", "Total Trades", "Completed Trades", "Completion Rate", "Strikes", "Is Banned", "Created At"])
+    
+    async for user in db.users.find().sort("created_at", -1).limit(5000):
+        writer.writerow([
+            str(user["_id"]),
+            user.get("username", ""),
+            user.get("email", ""),
+            user.get("role", "user"),
+            user.get("total_trades", 0),
+            user.get("completed_trades", 0),
+            user.get("completion_rate", 0),
+            user.get("strikes", 0),
+            user.get("is_banned", False),
+            user.get("created_at", "").isoformat() if isinstance(user.get("created_at"), datetime) else str(user.get("created_at", "")),
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=users_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"}
+    )
+
+# ============ TRADE AUTO-EXPIRY BACKGROUND TASK ============
+
+async def check_expired_trades():
+    """Background task to auto-expire trades that exceeded payment window"""
+    while True:
+        try:
+            # Find trades that are INITIATED and past their payment window
+            now = datetime.now(timezone.utc)
+            async for trade in db.trades.find({"status": "INITIATED"}):
+                created_at = trade.get("created_at")
+                if not created_at:
+                    continue
+                # Handle both timezone-aware and naive datetimes
+                if isinstance(created_at, datetime):
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                window_mins = trade.get("payment_window_mins", 30)
+                deadline = created_at + timedelta(minutes=window_mins)
+                
+                if now > deadline:
+                    # Expire the trade
+                    await db.trades.update_one(
+                        {"_id": trade["_id"]},
+                        {"$set": {"status": "EXPIRED", "expired_at": now}}
+                    )
+                    
+                    # Return USDT to offer
+                    await db.offers.update_one(
+                        {"_id": ObjectId(trade["offer_id"])},
+                        {"$inc": {"available_usdt": trade["amount_usdt"]}}
+                    )
+                    
+                    trade_id = str(trade["_id"])
+                    
+                    # System message
+                    await db.messages.insert_one({
+                        "trade_id": trade_id,
+                        "sender_id": "system",
+                        "message": "Trade expired - payment window exceeded",
+                        "message_type": "system",
+                        "is_read": False,
+                        "created_at": now,
+                    })
+                    
+                    # Notify both parties
+                    for uid in [trade["buyer_id"], trade["seller_id"]]:
+                        await db.notifications.insert_one({
+                            "user_id": uid,
+                            "type": "trade_expired",
+                            "message": f"Trade expired - payment window of {window_mins} minutes exceeded",
+                            "trade_id": trade_id,
+                            "is_read": False,
+                            "created_at": now,
+                        })
+                        asyncio.create_task(send_trade_email(uid, "trade_expired", {"id": trade_id, "amount_usdt": trade["amount_usdt"], "amount_inr": trade["amount_inr"]}))
+                    
+                    # WebSocket broadcast
+                    await ws_manager.broadcast_to_trade(trade_id, {
+                        "type": "status_update",
+                        "status": "EXPIRED",
+                        "message": "Trade expired - payment window exceeded",
+                        "timestamp": now.isoformat(),
+                    })
+                    
+                    logger.info(f"Trade {trade_id} auto-expired")
+        except Exception as e:
+            logger.error(f"Error in trade expiry check: {e}")
+        
+        await asyncio.sleep(30)  # Check every 30 seconds
+
 # ============ STARTUP ============
 
 @app.on_event("startup")
@@ -951,6 +1349,8 @@ async def startup():
     await db.trades.create_index("seller_id")
     await db.messages.create_index("trade_id")
     await db.notifications.create_index("user_id")
+    await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.password_reset_tokens.create_index("token")
     
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@chainswap.com")
@@ -979,6 +1379,9 @@ async def startup():
         logger.info("Admin password updated")
     
     logger.info("ChainSwap API started")
+    
+    # Start background task for trade auto-expiry
+    asyncio.create_task(check_expired_trades())
 
 # Include router
 app.include_router(api_router)

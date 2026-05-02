@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="14" time="52.298" timestamp="2026-05-02T10:51:29.975430+00:00" hostname="agent-env-c726b3b4-797c-440b-84c8-42ed5f571be4"><testcase classname="backend.tests.test_new_features" name="test_forgot_password_existing_email" time="0.589" /><testcase classname="backend.tests.test_new_features" name="test_forgot_password_nonexistent_email_returns_200" time="0.100" /><testcase classname="backend.tests.test_new_features" name="test_reset_password_invalid_token" time="0.105" /><testcase classname="backend.tests.test_new_features" name="test_reset_password_short_password" time="0.106" /><testcase classname="backend.tests.test_new_features" name="test_reset_password_full_flow" time="1.335" /><testcase classname="backend.tests.test_new_features" name="test_export_trades_csv_admin" time="0.471" /><testcase classname="backend.tests.test_new_features" name="test_export_users_csv_admin" time="0.103" /><testcase classname="backend.tests.test_new_features" name="test_export_trades_forbidden_for_non_admin" time="0.421" /><testcase classname="backend.tests.test_new_features" name="test_export_users_forbidden_unauthenticated" time="0.110" /><testcase classname="backend.tests.test_new_features" name="test_trade_auto_expiry" time="16.427" /><testcase classname="backend.tests.test_new_features" name="test_websocket_rejects_without_token" time="10.015" /><testcase classname="backend.tests.test_new_features" name="test_websocket_rejects_invalid_token" time="10.001"><failure message="TimeoutError: timed out while waiting for handshake response">backend/tests/test_new_features.py:286: in test_websocket_rejects_invalid_token
+    ws = connect(url, open_timeout=10)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/websockets/sync/client.py:381: in connect
+    connection.handshake(
+/root/.venv/lib/python3.11/site-packages/websockets/sync/client.py:95: in handshake
+    raise TimeoutError("timed out while waiting for handshake response")
+E   TimeoutError: timed out while waiting for handshake response</failure></testcase><testcase classname="backend.tests.test_new_features" name="test_websocket_accepts_valid_token_and_message" time="10.924"><failure message="TimeoutError: timed out while waiting for handshake response">backend/tests/test_new_features.py:337: in test_websocket_accepts_valid_token_and_message
+    ws = connect(url, open_timeout=10)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/websockets/sync/client.py:381: in connect
+    connection.handshake(
+/root/.venv/lib/python3.11/site-packages/websockets/sync/client.py:95: in handshake
+    raise TimeoutError("timed out while waiting for handshake response")
+E   TimeoutError: timed out while waiting for handshake response</failure></testcase><testcase classname="backend.tests.test_new_features" name="test_email_mock_logs_on_forgot_password" time="1.451" /></testsuite></testsuites>

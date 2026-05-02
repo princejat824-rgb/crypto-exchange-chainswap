@@ -90,6 +90,8 @@ export default function LoginPage() {
           </form>
           
           <p className="text-center text-[#A1A1AA] text-sm mt-6">
+            <Link to="/forgot-password" className="text-[#4F8EF7] hover:underline" data-testid="forgot-password-link">Forgot password?</Link>
+            <span className="mx-2">|</span>
             New here? <Link to="/register" className="text-[#4F8EF7] hover:underline" data-testid="login-register-link">Register</Link>
           </p>
         </div>

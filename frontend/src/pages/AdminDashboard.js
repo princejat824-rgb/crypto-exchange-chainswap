@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { toast } from 'sonner';
-import { Users, TrendingUp, AlertTriangle, Package, Eye, Ban, CheckCircle, XCircle, BarChart3, List, Shield, Settings } from 'lucide-react';
+import { Users, TrendingUp, AlertTriangle, Package, Eye, Ban, CheckCircle, XCircle, BarChart3, List, Shield, Settings, Download, FileText } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -78,6 +78,7 @@ export default function AdminDashboard() {
     { id: 'trades', label: 'Trades', icon: TrendingUp },
     { id: 'disputes', label: 'Disputes', icon: AlertTriangle, badge: stats.open_disputes },
     { id: 'offers', label: 'Offers', icon: Package },
+    { id: 'reports', label: 'Reports', icon: FileText },
   ];
 
   return (
@@ -296,6 +297,72 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                   {offers.length === 0 && <p className="text-center py-8 text-[#A1A1AA]">No offers</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Reports */}
+            {tab === 'reports' && (
+              <div data-testid="admin-reports">
+                <h2 className="font-['Chivo'] text-2xl font-bold mb-6">Reports & Export</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-[#141414] rounded-2xl p-6 border border-white/5">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Download className="w-6 h-6 text-[#4F8EF7]" />
+                      <h3 className="font-semibold text-lg">Trades Report</h3>
+                    </div>
+                    <p className="text-[#A1A1AA] text-sm mb-6">Download all trades data as CSV. Includes buyer, seller, amounts, status, and dates.</p>
+                    <a
+                      href={`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/trades`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#4F8EF7] text-white font-semibold rounded-full hover:bg-[#3B7BE8] transition-colors"
+                      data-testid="export-trades-btn"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const token = localStorage.getItem('token');
+                        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/trades`, {
+                          headers: { Authorization: `Bearer ${token}` },
+                          credentials: 'include'
+                        }).then(res => res.blob()).then(blob => {
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a'); a.href = url;
+                          a.download = `trades_export_${new Date().toISOString().slice(0,10)}.csv`;
+                          a.click(); window.URL.revokeObjectURL(url);
+                          toast.success('Trades CSV downloaded!');
+                        }).catch(() => toast.error('Download failed'));
+                      }}
+                    >
+                      <Download className="w-4 h-4" /> Export Trades CSV
+                    </a>
+                  </div>
+                  
+                  <div className="bg-[#141414] rounded-2xl p-6 border border-white/5">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Download className="w-6 h-6 text-[#10B981]" />
+                      <h3 className="font-semibold text-lg">Users Report</h3>
+                    </div>
+                    <p className="text-[#A1A1AA] text-sm mb-6">Download all users data as CSV. Includes username, email, trades, completion rate, and status.</p>
+                    <button
+                      className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#10B981] text-white font-semibold rounded-full hover:bg-[#059669] transition-colors"
+                      data-testid="export-users-btn"
+                      onClick={() => {
+                        const token = localStorage.getItem('token');
+                        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/users`, {
+                          headers: { Authorization: `Bearer ${token}` },
+                          credentials: 'include'
+                        }).then(res => res.blob()).then(blob => {
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a'); a.href = url;
+                          a.download = `users_export_${new Date().toISOString().slice(0,10)}.csv`;
+                          a.click(); window.URL.revokeObjectURL(url);
+                          toast.success('Users CSV downloaded!');
+                        }).catch(() => toast.error('Download failed'));
+                      }}
+                    >
+                      <Download className="w-4 h-4" /> Export Users CSV
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { useAuth, api } from '../contexts/AuthContext';
 import { toast } from 'sonner';
-import { Send, Upload, AlertTriangle, CheckCircle, Clock, MessageCircle } from 'lucide-react';
+import { Send, Upload, AlertTriangle, CheckCircle, Clock, MessageCircle, Wifi, WifiOff } from 'lucide-react';
 
 export default function TradePage() {
   const { tradeId } = useParams();
@@ -13,24 +13,91 @@ export default function TradePage() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const messagesEndRef = useRef(null);
+  const wsRef = useRef(null);
   const pollRef = useRef(null);
 
+  const fetchTrade = useCallback(async () => {
+    try {
+      const res = await api.get(`/trades/${tradeId}`);
+      setTrade(res.data);
+    } catch { } finally { setLoading(false); }
+  }, [tradeId]);
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await api.get(`/trades/${tradeId}/messages`);
+      setMessages(res.data);
+    } catch { }
+  }, [tradeId]);
+
+  // WebSocket connection
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token || !tradeId) return;
+
+    const wsUrl = process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+    const ws = new WebSocket(`${wsUrl}/ws/trade/${tradeId}?token=${token}`);
+    
+    ws.onopen = () => {
+      setWsConnected(true);
+      // Clear polling when WS is connected
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'new_message') {
+          setMessages(prev => [...prev, {
+            id: data.id,
+            sender_id: data.sender_id,
+            sender_username: data.sender_username,
+            message: data.message,
+            message_type: data.message_type,
+            created_at: data.created_at,
+          }]);
+        } else if (data.type === 'status_update') {
+          fetchTrade(); // Refresh trade on status change
+        }
+      } catch {}
+    };
+    
+    ws.onclose = () => {
+      setWsConnected(false);
+      // Fallback to polling when WS disconnects
+      if (!pollRef.current) {
+        pollRef.current = setInterval(() => { fetchTrade(); fetchMessages(); }, 5000);
+      }
+    };
+    
+    ws.onerror = () => { setWsConnected(false); };
+    wsRef.current = ws;
+
+    return () => {
+      ws.close();
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [tradeId, fetchTrade, fetchMessages]);
+
+  // Initial fetch
   useEffect(() => {
     fetchTrade();
     fetchMessages();
-    // Poll for updates every 5s
+    // Start polling as fallback (will be cleared if WS connects)
     pollRef.current = setInterval(() => { fetchTrade(); fetchMessages(); }, 5000);
-    return () => clearInterval(pollRef.current);
-  }, [tradeId]);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [tradeId, fetchTrade, fetchMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Timer
   useEffect(() => {
     if (!trade) return;
-    if (trade.status !== 'INITIATED' && trade.status !== 'PAYMENT_SENT') return;
+    if (!['INITIATED', 'PAYMENT_SENT'].includes(trade.status)) return;
     const interval = setInterval(() => {
       const created = new Date(trade.created_at);
       const deadline = new Date(created.getTime() + (trade.payment_window_mins || 30) * 60000);
@@ -45,28 +112,22 @@ export default function TradePage() {
     return () => clearInterval(interval);
   }, [trade]);
 
-  const fetchTrade = async () => {
-    try {
-      const res = await api.get(`/trades/${tradeId}`);
-      setTrade(res.data);
-    } catch { } finally { setLoading(false); }
-  };
-
-  const fetchMessages = async () => {
-    try {
-      const res = await api.get(`/trades/${tradeId}/messages`);
-      setMessages(res.data);
-    } catch { }
-  };
-
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
-    try {
-      await api.post(`/trades/${tradeId}/messages`, { message: newMessage });
+    
+    // Try sending via WebSocket first
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'message', message: newMessage }));
       setNewMessage('');
-      fetchMessages();
-    } catch { toast.error('Failed to send message'); }
+    } else {
+      // Fallback to REST API
+      try {
+        await api.post(`/trades/${tradeId}/messages`, { message: newMessage });
+        setNewMessage('');
+        fetchMessages();
+      } catch { toast.error('Failed to send message'); }
+    }
   };
 
   const updateStatus = async (status, disputeReason) => {
@@ -119,8 +180,8 @@ export default function TradePage() {
               </div>
 
               {/* Timer */}
-              {timeLeft && trade.status !== 'COMPLETED' && trade.status !== 'CANCELLED' && (
-                <div className={`flex items-center gap-2 mb-4 p-3 rounded-xl ${timeLeft === 'EXPIRED' ? 'bg-red-50 text-red-600' : parseInt(timeLeft) < 5 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`} data-testid="trade-timer">
+              {timeLeft && !['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(trade.status) && (
+                <div className={`flex items-center gap-2 mb-4 p-3 rounded-xl ${timeLeft === 'EXPIRED' || (typeof timeLeft === 'string' && parseInt(timeLeft) < 5) ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`} data-testid="trade-timer">
                   <Clock className="w-4 h-4" />
                   <span className="text-sm font-medium">{timeLeft === 'EXPIRED' ? 'Payment window expired' : `Time remaining: ${timeLeft}`}</span>
                 </div>
@@ -194,7 +255,11 @@ export default function TradePage() {
                     <AlertTriangle className="w-5 h-5" /> Trade under review by admin. Reason: {trade.dispute_reason}
                   </div>
                 )}
-                {/* Dispute button for both parties when payment is sent */}
+                {trade.status === 'EXPIRED' && (
+                  <div className="p-4 bg-gray-50 rounded-xl text-gray-700 text-sm flex items-center gap-2" data-testid="trade-expired-msg">
+                    <Clock className="w-5 h-5" /> Trade expired - payment window exceeded. USDT returned to seller.
+                  </div>
+                )}
                 {trade.status === 'PAYMENT_SENT' && trade.is_buyer && (
                   <button onClick={() => { const reason = prompt('Reason for dispute:'); if (reason) updateStatus('DISPUTED', reason); }} className="w-full py-2 border border-red-300 text-red-500 font-medium rounded-full hover:bg-red-50 transition-colors text-sm">
                     Open Dispute
@@ -209,6 +274,7 @@ export default function TradePage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">Trade ID</span><span className="font-mono text-gray-700">{trade.id?.slice(0, 12)}...</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Network</span><span className="text-gray-700">{trade.network}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Payment Window</span><span className="text-gray-700">{trade.payment_window_mins} minutes</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Created</span><span className="text-gray-700">{new Date(trade.created_at).toLocaleString()}</span></div>
                 {trade.payment_proof_url && (
                   <div className="flex justify-between"><span className="text-gray-500">Payment Proof</span><a href={`${process.env.REACT_APP_BACKEND_URL}${trade.payment_proof_url}`} target="_blank" rel="noreferrer" className="text-[#4F8EF7] hover:underline">View</a></div>
@@ -220,9 +286,18 @@ export default function TradePage() {
           {/* Right Panel - Chat */}
           <div className="lg:col-span-5">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[calc(100vh-120px)] sticky top-20" data-testid="trade-chat">
-              <div className="p-4 border-b border-gray-100 flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-[#4F8EF7]" />
-                <h3 className="font-semibold text-gray-900">Trade Chat</h3>
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-5 h-5 text-[#4F8EF7]" />
+                  <h3 className="font-semibold text-gray-900">Trade Chat</h3>
+                </div>
+                <div className="flex items-center gap-1 text-xs" data-testid="ws-status">
+                  {wsConnected ? (
+                    <><Wifi className="w-3 h-3 text-[#10B981]" /><span className="text-[#10B981]">Live</span></>
+                  ) : (
+                    <><WifiOff className="w-3 h-3 text-gray-400" /><span className="text-gray-400">Polling</span></>
+                  )}
+                </div>
               </div>
               
               {/* Messages */}
@@ -244,8 +319,8 @@ export default function TradePage() {
 
               {/* Quick Replies */}
               <div className="px-4 py-2 border-t border-gray-100 flex gap-2 overflow-x-auto">
-                {['Payment sent', 'Please check', 'Waiting for confirmation'].map(qr => (
-                  <button key={qr} onClick={() => setNewMessage(qr)} className="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full whitespace-nowrap hover:bg-gray-200">{qr}</button>
+                {['Payment sent', 'Please check your account', 'Waiting for confirmation'].map(qr => (
+                  <button key={qr} onClick={() => setNewMessage(qr)} className="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full whitespace-nowrap hover:bg-gray-200 transition-colors">{qr}</button>
                 ))}
               </div>
 

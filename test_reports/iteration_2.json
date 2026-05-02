@@ -1,0 +1,48 @@
+{
+  "summary": "Tested 5 new features on ChainSwap P2P USDT platform. Backend: 12/14 pytest cases passed. Forgot-password, reset-password (happy + error paths), CSV exports (admin-only), trade auto-expiry, and email mock logging all work correctly. WebSocket 2/3 tests failed via PUBLIC URL due to ingress routing (WS endpoint is at /ws/trade/... with no /api prefix, so k8s ingress routes it to the frontend on port 3000 instead of backend on 8001). Internal WS (localhost:8001) works. Frontend: /forgot-password, /reset-password (with+without token), and Admin Reports tab with Export buttons all load and function correctly.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "WS /ws/trade/{trade_id}", "issue": "WebSocket endpoint is registered on bare `app` as /ws/trade/{id} (no /api prefix). Kubernetes ingress only routes /api/* to backend:8001; /ws/* goes to frontend:3000 and returns the React HTML (HTTP 200) instead of upgrading. Frontend TradePage.js builds ws url as `${BACKEND_URL}/ws/trade/...` — also broken externally. Internal ws://localhost:8001/ws/trade/... works (verified: returns 403 for invalid token). Real-time chat effectively remains polling-only via the public URL.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/auth/forgot-password", "issue": "Uses os.environ.get('FRONTEND_URL', 'http://localhost:3000') — in cloud deployment FRONTEND_URL is not set, so reset links point to localhost:3000 which users cannot open. Should default to REACT_APP_BACKEND_URL or request origin."},
+      {"endpoint": "GET /api/admin/export/trades", "issue": "Response body built with io.StringIO().getvalue() in a single chunk — not true streaming for 5000 rows. Acceptable but rename StreamingResponse or build chunked."},
+      {"endpoint": "check_expired_trades", "issue": "Loops unbounded every 30s with no sleep-on-exception backoff; if Mongo hiccups the task may hot-loop. Also does not create a notification for the seller/buyer on expiry (only system chat message)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Real-time chat on TradePage", "issue": "WebSocket connection to ${BACKEND_URL}/ws/trade/{id}?token= will never upgrade via public URL (ingress serves React HTML). Client correctly falls back to polling so chat still works, but the 'real-time' feature claimed in PRD is not actually live over WS externally.", "affected_selectors": ["TradePage.js line 41"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_chainswap.py",
+    "/app/test_reports/pytest/pytest_new_features.xml"
+  ],
+  "action_items": [
+    "Move WebSocket endpoint to /api/ws/trade/{trade_id} (change @app.websocket in server.py line 842 to @app.websocket('/api/ws/trade/{trade_id}')) AND update frontend TradePage.js line 41 to `${wsUrl}/api/ws/trade/${tradeId}?token=...`. Without this, real WebSocket is unreachable via the public URL.",
+    "Set FRONTEND_URL env var in backend/.env (or derive from request.headers.origin / REACT_APP_BACKEND_URL) so reset-password links in forgot-password emails are usable.",
+    "Add try/except with short sleep in check_expired_trades outer loop to avoid tight hot-loop if Mongo throws.",
+    "Optional: create per-user notification (db.notifications) when trade auto-expires so affected parties see it without opening the trade."
+  ],
+  "critical_code_review_comments": [
+    "server.py at 1400 lines still not split; continue to recommend splitting into modules (auth.py, offers.py, trades.py, admin.py, ws.py, tasks.py).",
+    "reset-password endpoint: no rate-limit on token-guessing attempts — tokens are 43 chars urlsafe so brute-force is infeasible but a per-IP bucket is still recommended.",
+    "forgot-password endpoint: does not invalidate previously issued unused tokens for same user when a new one is generated — attacker who steals an older token could use it.",
+    "CSV export: does not stream — entire payload buffered in StringIO. For 5000+ rows/ high row counts, use async generator yielding line-by-line.",
+    "WebSocket endpoint bypasses the same cookie-auth pipeline used by HTTP APIs; uses only query-param JWT. Consider also accepting cookie for consistency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py"
+  ],
+  "success_rate": {"backend": "86% (12/14 — 2 WS tests fail due to ingress routing bug)", "frontend": "100% (all 5 new-feature UI flows load & work)"},
+  "test_credentials": "Admin: admin@chainswap.com / Admin@123. Test users generated dynamically.",
+  "seed_data_creation": "Created users reset_<sfx>, exp_seller_<sfx>, exp_buyer_<sfx>, ws_s_<sfx>, ws_b_<sfx>, emailmock_<sfx>. Created one TRC20 sell offer per run (1000 USDT, ₹88.5) and one expired trade. Safe to leave as seed data.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New-feature tests live in /app/backend/tests/test_new_features.py alongside regression suite test_chainswap.py. Run with: pytest /app/backend/tests/ -v. WebSocket tests use websockets.sync.client — they timeout via public URL because ingress does not route /ws/* to backend. After main agent moves WS to /api/ws/trade/{id} (both server.py and TradePage.js), re-run WS tests. Password reset flow reads token directly from MongoDB collection password_reset_tokens since SMTP is mocked. Trade auto-expiry test rewinds created_at via direct Mongo update and polls GET /api/trades/{id} for status == EXPIRED (waits up to 45s — background task runs every 30s).",
+  "rca of the issue": "WebSocket failure RCA: (1) Reproduce: `curl https://<public>/ws/trade/test` returns HTTP 200 with React HTML, confirming ingress routes /ws/* to frontend, not backend. (2) Root cause: Kubernetes ingress rule only forwards paths starting with /api to backend service on port 8001. The WS endpoint was registered as /ws/trade/{id} (see server.py line 842) without the /api prefix. (3) Mitigation: prefix both backend route and frontend client URL with /api. Local (localhost:8001) testing passes because no ingress is in the way."
+}
