@@ -19,6 +19,7 @@ export default function AdminDashboard() {
   const [exportEndDate, setExportEndDate] = useState('');
   const [analytics, setAnalytics] = useState(null);
   const [analyticsPeriod, setAnalyticsPeriod] = useState(30);
+  const [topTraders, setTopTraders] = useState([]);
 
   useEffect(() => { loadData(); }, [tab]);
 
@@ -48,6 +49,8 @@ export default function AdminDashboard() {
       if (tab === 'reports') {
         const res = await api.get(`/admin/analytics?days=${analyticsPeriod}`);
         setAnalytics(res.data);
+        const traders = await api.get(`/admin/top-traders?days=${analyticsPeriod}`);
+        setTopTraders(traders.data);
       }
     } catch {} finally { setLoading(false); }
   };
@@ -512,6 +515,69 @@ export default function AdminDashboard() {
                     )}
                   </>
                 )}
+
+                {/* Top Traders Leaderboard */}
+                <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6" data-testid="top-traders-leaderboard">
+                  <div className="flex items-center justify-between mb-5">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <svg className="w-5 h-5 text-[#F59E0B]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+                      Top Traders
+                    </h3>
+                    <span className="text-xs text-[#A1A1AA]">Last {analyticsPeriod} days</span>
+                  </div>
+                  {topTraders.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/5">
+                            <th className="pb-3 text-left text-xs text-[#A1A1AA] font-medium">#</th>
+                            <th className="pb-3 text-left text-xs text-[#A1A1AA] font-medium">Trader</th>
+                            <th className="pb-3 text-right text-xs text-[#A1A1AA] font-medium">Volume (INR)</th>
+                            <th className="pb-3 text-right text-xs text-[#A1A1AA] font-medium">USDT</th>
+                            <th className="pb-3 text-right text-xs text-[#A1A1AA] font-medium">Trades</th>
+                            <th className="pb-3 text-right text-xs text-[#A1A1AA] font-medium">Buy/Sell</th>
+                            <th className="pb-3 text-right text-xs text-[#A1A1AA] font-medium">Rate</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topTraders.map(trader => (
+                            <tr key={trader.rank} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
+                              <td className="py-3">
+                                {trader.rank <= 3 ? (
+                                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${trader.rank === 1 ? 'bg-[#F59E0B]/20 text-[#F59E0B]' : trader.rank === 2 ? 'bg-[#A1A1AA]/20 text-[#A1A1AA]' : 'bg-[#CD7F32]/20 text-[#CD7F32]'}`}>
+                                    {trader.rank}
+                                  </span>
+                                ) : (
+                                  <span className="text-[#A1A1AA] pl-1.5">{trader.rank}</span>
+                                )}
+                              </td>
+                              <td className="py-3">
+                                <span className="font-medium">{trader.username}</span>
+                              </td>
+                              <td className="py-3 text-right font-medium text-[#4F8EF7]">₹{trader.total_volume_inr.toLocaleString()}</td>
+                              <td className="py-3 text-right">{trader.total_volume_usdt.toFixed(1)}</td>
+                              <td className="py-3 text-right">{trader.total_trades}</td>
+                              <td className="py-3 text-right">
+                                <span className="text-[#4F8EF7]">{trader.buy_trades}</span>
+                                <span className="text-[#A1A1AA] mx-0.5">/</span>
+                                <span className="text-[#10B981]">{trader.sell_trades}</span>
+                              </td>
+                              <td className="py-3 text-right">
+                                <span className={`${trader.completion_rate >= 80 ? 'text-[#10B981]' : trader.completion_rate >= 50 ? 'text-[#F59E0B]' : 'text-[#A1A1AA]'}`}>
+                                  {trader.completion_rate}%
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-[#A1A1AA] text-sm">No trader activity in this period</p>
+                    </div>
+                  )}
+                </div>
 
                 {/* Divider */}
                 <div className="border-t border-white/5 my-8"></div>

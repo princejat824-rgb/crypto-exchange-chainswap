@@ -1315,6 +1315,113 @@ async def admin_analytics(request: Request, days: int = 30):
         "period_days": days,
     }
 
+# ============ TOP TRADERS LEADERBOARD ============
+
+@api_router.get("/admin/top-traders")
+async def admin_top_traders(request: Request, days: int = 30, limit: int = 10):
+    await get_admin_user(request)
+    
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    
+    # Top traders by volume (as buyer)
+    buyer_pipeline = [
+        {"$match": {"created_at": {"$gte": start}, "status": {"$in": ["COMPLETED", "PAYMENT_SENT", "INITIATED"]}}},
+        {"$group": {
+            "_id": "$buyer_id",
+            "trades_count": {"$sum": 1},
+            "volume_inr": {"$sum": "$amount_inr"},
+            "volume_usdt": {"$sum": "$amount_usdt"},
+            "completed": {"$sum": {"$cond": [{"$eq": ["$status", "COMPLETED"]}, 1, 0]}},
+        }},
+    ]
+    buyer_stats = {d["_id"]: d for d in await db.trades.aggregate(buyer_pipeline).to_list(500)}
+    
+    # Top traders by volume (as seller)
+    seller_pipeline = [
+        {"$match": {"created_at": {"$gte": start}, "status": {"$in": ["COMPLETED", "PAYMENT_SENT", "INITIATED"]}}},
+        {"$group": {
+            "_id": "$seller_id",
+            "trades_count": {"$sum": 1},
+            "volume_inr": {"$sum": "$amount_inr"},
+            "volume_usdt": {"$sum": "$amount_usdt"},
+            "completed": {"$sum": {"$cond": [{"$eq": ["$status", "COMPLETED"]}, 1, 0]}},
+        }},
+    ]
+    seller_stats = {d["_id"]: d for d in await db.trades.aggregate(seller_pipeline).to_list(500)}
+    
+    # Merge buyer + seller stats per user
+    all_user_ids = set(list(buyer_stats.keys()) + list(seller_stats.keys()))
+    merged = []
+    for uid in all_user_ids:
+        b = buyer_stats.get(uid, {"trades_count": 0, "volume_inr": 0, "volume_usdt": 0, "completed": 0})
+        s = seller_stats.get(uid, {"trades_count": 0, "volume_inr": 0, "volume_usdt": 0, "completed": 0})
+        merged.append({
+            "user_id": uid,
+            "total_trades": b["trades_count"] + s["trades_count"],
+            "total_volume_inr": b["volume_inr"] + s["volume_inr"],
+            "total_volume_usdt": b["volume_usdt"] + s["volume_usdt"],
+            "completed_trades": b["completed"] + s["completed"],
+            "buy_trades": b["trades_count"],
+            "sell_trades": s["trades_count"],
+        })
+    
+    # Sort by volume
+    merged.sort(key=lambda x: x["total_volume_inr"], reverse=True)
+    top = merged[:limit]
+    
+    # Enrich with user info
+    result = []
+    for i, trader in enumerate(top):
+        user = await db.users.find_one({"_id": ObjectId(trader["user_id"])}, {"_id": 0, "username": 1, "completion_rate": 1, "created_at": 1})
+        if user:
+            result.append({
+                "rank": i + 1,
+                "username": user.get("username", "Unknown"),
+                "completion_rate": user.get("completion_rate", 0),
+                "total_trades": trader["total_trades"],
+                "total_volume_inr": trader["total_volume_inr"],
+                "total_volume_usdt": trader["total_volume_usdt"],
+                "completed_trades": trader["completed_trades"],
+                "buy_trades": trader["buy_trades"],
+                "sell_trades": trader["sell_trades"],
+            })
+    
+    return result
+
+# ============ PUBLIC TOP TRADERS (for homepage/dashboard) ============
+
+@api_router.get("/top-traders")
+async def public_top_traders(days: int = 30, limit: int = 5):
+    """Public leaderboard - shows limited info"""
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start}, "status": "COMPLETED"}},
+        {"$group": {
+            "_id": "$seller_id",
+            "trades_count": {"$sum": 1},
+            "volume_usdt": {"$sum": "$amount_usdt"},
+        }},
+        {"$sort": {"trades_count": -1}},
+        {"$limit": limit},
+    ]
+    top_sellers = await db.trades.aggregate(pipeline).to_list(limit)
+    
+    result = []
+    for i, t in enumerate(top_sellers):
+        user = await db.users.find_one({"_id": ObjectId(t["_id"])}, {"_id": 0, "username": 1, "completion_rate": 1, "completed_trades": 1})
+        if user:
+            result.append({
+                "rank": i + 1,
+                "username": user.get("username", "Unknown"),
+                "completed_trades": user.get("completed_trades", 0),
+                "completion_rate": user.get("completion_rate", 0),
+                "volume_usdt": t["volume_usdt"],
+            })
+    return result
+
 # ============ CSV EXPORT ============
 
 @api_router.get("/admin/export/trades")
