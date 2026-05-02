@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import { Users, TrendingUp, AlertTriangle, Package, Eye, Ban, CheckCircle, XCircle, BarChart3, List, Shield, Settings, Download, FileText, Calendar } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -16,6 +17,8 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [exportStartDate, setExportStartDate] = useState('');
   const [exportEndDate, setExportEndDate] = useState('');
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState(30);
 
   useEffect(() => { loadData(); }, [tab]);
 
@@ -41,6 +44,10 @@ export default function AdminDashboard() {
       if (tab === 'offers') {
         const res = await api.get('/admin/offers');
         setOffers(res.data);
+      }
+      if (tab === 'reports') {
+        const res = await api.get(`/admin/analytics?days=${analyticsPeriod}`);
+        setAnalytics(res.data);
       }
     } catch {} finally { setLoading(false); }
   };
@@ -306,7 +313,159 @@ export default function AdminDashboard() {
             {/* Reports */}
             {tab === 'reports' && (
               <div data-testid="admin-reports">
-                <h2 className="font-['Chivo'] text-2xl font-bold mb-6">Reports & Export</h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="font-['Chivo'] text-2xl font-bold">Reports & Analytics</h2>
+                  <div className="flex gap-2">
+                    {[7, 14, 30, 90].map(d => (
+                      <button key={d} onClick={() => { setAnalyticsPeriod(d); api.get(`/admin/analytics?days=${d}`).then(r => setAnalytics(r.data)).catch(() => {}); }} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${analyticsPeriod === d ? 'bg-[#4F8EF7] text-white' : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10'}`} data-testid={`period-${d}d`}>{d}D</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Analytics Charts */}
+                {analytics && (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
+                        <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Total Volume</p>
+                        <p className="text-2xl font-bold font-['Chivo'] mt-1 text-[#4F8EF7]">₹{(analytics.summary.total_volume_inr || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
+                        <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Total Trades</p>
+                        <p className="text-2xl font-bold font-['Chivo'] mt-1">{analytics.summary.total_trades}</p>
+                      </div>
+                      <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
+                        <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Completion Rate</p>
+                        <p className="text-2xl font-bold font-['Chivo'] mt-1 text-[#10B981]">{analytics.summary.completion_rate}%</p>
+                      </div>
+                      <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
+                        <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">New Users</p>
+                        <p className="text-2xl font-bold font-['Chivo'] mt-1 text-[#F59E0B]">{analytics.summary.total_new_users}</p>
+                      </div>
+                    </div>
+
+                    {/* Volume Chart */}
+                    <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6" data-testid="volume-chart">
+                      <h3 className="font-semibold mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-[#4F8EF7]" /> Trade Volume (INR)</h3>
+                      {analytics.daily_trades.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={250}>
+                          <AreaChart data={analytics.daily_trades}>
+                            <defs>
+                              <linearGradient id="volumeGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#4F8EF7" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#4F8EF7" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                            <XAxis dataKey="date" tick={{ fill: '#A1A1AA', fontSize: 11 }} tickFormatter={v => v.slice(5)} />
+                            <YAxis tick={{ fill: '#A1A1AA', fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} formatter={(v) => [`₹${v.toLocaleString()}`, 'Volume']} labelFormatter={l => `Date: ${l}`} />
+                            <Area type="monotone" dataKey="volume_inr" stroke="#4F8EF7" fill="url(#volumeGradient)" strokeWidth={2} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-[#A1A1AA] text-sm text-center py-12">No trade data for this period</p>
+                      )}
+                    </div>
+
+                    {/* Trades Count Chart */}
+                    <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6" data-testid="trades-chart">
+                      <h3 className="font-semibold mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-[#10B981]" /> Daily Trades</h3>
+                      {analytics.daily_trades.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={analytics.daily_trades}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                            <XAxis dataKey="date" tick={{ fill: '#A1A1AA', fontSize: 11 }} tickFormatter={v => v.slice(5)} />
+                            <YAxis tick={{ fill: '#A1A1AA', fontSize: 11 }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} />
+                            <Legend wrapperStyle={{ color: '#A1A1AA', fontSize: 12 }} />
+                            <Bar dataKey="completed" name="Completed" fill="#10B981" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="disputed" name="Disputed" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="trades" name="Total" fill="#4F8EF7" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-[#A1A1AA] text-sm text-center py-12">No trade data for this period</p>
+                      )}
+                    </div>
+
+                    {/* Breakdowns Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                      {/* Payment Method Breakdown */}
+                      <div className="bg-[#141414] rounded-2xl p-6 border border-white/5" data-testid="payment-breakdown">
+                        <h3 className="font-semibold mb-4">Payment Methods</h3>
+                        {analytics.payment_breakdown.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={200}>
+                            <PieChart>
+                              <Pie data={analytics.payment_breakdown} dataKey="count" nameKey="method" cx="50%" cy="50%" outerRadius={70} label={({ method, percent }) => `${method} ${(percent*100).toFixed(0)}%`} labelLine={false}>
+                                {analytics.payment_breakdown.map((_, i) => (
+                                  <Cell key={i} fill={['#4F8EF7', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'][i % 6]} />
+                                ))}
+                              </Pie>
+                              <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <p className="text-[#A1A1AA] text-sm text-center py-8">No data</p>
+                        )}
+                      </div>
+
+                      {/* Status Breakdown */}
+                      <div className="bg-[#141414] rounded-2xl p-6 border border-white/5" data-testid="status-breakdown">
+                        <h3 className="font-semibold mb-4">Trade Status Distribution</h3>
+                        {analytics.status_breakdown.length > 0 ? (
+                          <div className="space-y-3">
+                            {analytics.status_breakdown.map(s => {
+                              const colors = { COMPLETED: '#10B981', INITIATED: '#4F8EF7', PAYMENT_SENT: '#F59E0B', DISPUTED: '#EF4444', CANCELLED: '#6B7280', EXPIRED: '#9CA3AF' };
+                              const total = analytics.summary.total_trades || 1;
+                              const pct = ((s.count / total) * 100).toFixed(1);
+                              return (
+                                <div key={s.status}>
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-[#A1A1AA]">{s.status}</span>
+                                    <span className="font-medium">{s.count} ({pct}%)</span>
+                                  </div>
+                                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: colors[s.status] || '#4F8EF7' }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[#A1A1AA] text-sm text-center py-8">No data</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* New Users Chart */}
+                    {analytics.daily_users.length > 0 && (
+                      <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6" data-testid="users-chart">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-[#F59E0B]" /> New User Registrations</h3>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <AreaChart data={analytics.daily_users}>
+                            <defs>
+                              <linearGradient id="usersGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                            <XAxis dataKey="date" tick={{ fill: '#A1A1AA', fontSize: 11 }} tickFormatter={v => v.slice(5)} />
+                            <YAxis tick={{ fill: '#A1A1AA', fontSize: 11 }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} />
+                            <Area type="monotone" dataKey="new_users" stroke="#F59E0B" fill="url(#usersGradient)" strokeWidth={2} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Divider */}
+                <div className="border-t border-white/5 my-8"></div>
+                <h3 className="font-['Chivo'] text-xl font-bold mb-6">Export Data</h3>
 
                 {/* Date Range Filter */}
                 <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6">

@@ -1192,6 +1192,97 @@ async def admin_delete_offer(offer_id: str, request: Request):
     await db.offers.delete_one({"_id": ObjectId(offer_id)})
     return {"message": "Offer deleted"}
 
+# ============ ANALYTICS ============
+
+@api_router.get("/admin/analytics")
+async def admin_analytics(request: Request, days: int = 30):
+    await get_admin_user(request)
+    
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    
+    # Daily trades and volume for the last N days
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+            "trades_count": {"$sum": 1},
+            "volume_inr": {"$sum": "$amount_inr"},
+            "volume_usdt": {"$sum": "$amount_usdt"},
+            "completed": {"$sum": {"$cond": [{"$eq": ["$status", "COMPLETED"]}, 1, 0]}},
+            "disputed": {"$sum": {"$cond": [{"$eq": ["$status", "DISPUTED"]}, 1, 0]}},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    daily_trades = await db.trades.aggregate(pipeline).to_list(60)
+    
+    # Daily new users
+    user_pipeline = [
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+            "new_users": {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    daily_users = await db.users.aggregate(user_pipeline).to_list(60)
+    
+    # Payment method breakdown
+    payment_pipeline = [
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": "$payment_method",
+            "count": {"$sum": 1},
+            "volume": {"$sum": "$amount_inr"},
+        }},
+        {"$sort": {"count": -1}},
+    ]
+    payment_breakdown = await db.trades.aggregate(payment_pipeline).to_list(20)
+    
+    # Network breakdown
+    network_pipeline = [
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": "$network",
+            "count": {"$sum": 1},
+            "volume": {"$sum": "$amount_inr"},
+        }},
+        {"$sort": {"count": -1}},
+    ]
+    network_breakdown = await db.trades.aggregate(network_pipeline).to_list(10)
+    
+    # Status breakdown
+    status_pipeline = [
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": "$status",
+            "count": {"$sum": 1},
+        }},
+    ]
+    status_breakdown = await db.trades.aggregate(status_pipeline).to_list(10)
+    
+    # Summary totals
+    total_volume = sum(d.get("volume_inr", 0) for d in daily_trades)
+    total_trades = sum(d.get("trades_count", 0) for d in daily_trades)
+    total_completed = sum(d.get("completed", 0) for d in daily_trades)
+    total_new_users = sum(d.get("new_users", 0) for d in daily_users)
+    
+    return {
+        "daily_trades": [{"date": d["_id"], "trades": d["trades_count"], "volume_inr": d["volume_inr"], "volume_usdt": d["volume_usdt"], "completed": d["completed"], "disputed": d["disputed"]} for d in daily_trades],
+        "daily_users": [{"date": d["_id"], "new_users": d["new_users"]} for d in daily_users],
+        "payment_breakdown": [{"method": d["_id"] or "Unknown", "count": d["count"], "volume": d["volume"]} for d in payment_breakdown],
+        "network_breakdown": [{"network": d["_id"] or "Unknown", "count": d["count"], "volume": d["volume"]} for d in network_breakdown],
+        "status_breakdown": [{"status": d["_id"] or "Unknown", "count": d["count"]} for d in status_breakdown],
+        "summary": {
+            "total_volume_inr": total_volume,
+            "total_trades": total_trades,
+            "total_completed": total_completed,
+            "total_new_users": total_new_users,
+            "completion_rate": round((total_completed / total_trades * 100) if total_trades > 0 else 0, 1),
+        },
+        "period_days": days,
+    }
+
 # ============ CSV EXPORT ============
 
 @api_router.get("/admin/export/trades")
