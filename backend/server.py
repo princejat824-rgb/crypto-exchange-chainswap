@@ -1203,9 +1203,9 @@ async def export_trades_csv(request: Request, start_date: Optional[str] = None, 
         query["created_at"] = {"$gte": datetime.fromisoformat(start_date)}
     if end_date:
         if "created_at" in query:
-            query["created_at"]["$lte"] = datetime.fromisoformat(end_date)
+            query["created_at"]["$lte"] = datetime.fromisoformat(end_date) + timedelta(days=1)
         else:
-            query["created_at"] = {"$lte": datetime.fromisoformat(end_date)}
+            query["created_at"] = {"$lte": datetime.fromisoformat(end_date) + timedelta(days=1)}
     
     output = io.StringIO()
     writer = csv.writer(output)
@@ -1236,14 +1236,23 @@ async def export_trades_csv(request: Request, start_date: Optional[str] = None, 
     )
 
 @api_router.get("/admin/export/users")
-async def export_users_csv(request: Request):
+async def export_users_csv(request: Request, start_date: Optional[str] = None, end_date: Optional[str] = None):
     await get_admin_user(request)
+    
+    query = {}
+    if start_date:
+        query["created_at"] = {"$gte": datetime.fromisoformat(start_date)}
+    if end_date:
+        if "created_at" in query:
+            query["created_at"]["$lte"] = datetime.fromisoformat(end_date) + timedelta(days=1)
+        else:
+            query["created_at"] = {"$lte": datetime.fromisoformat(end_date) + timedelta(days=1)}
     
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["User ID", "Username", "Email", "Role", "Total Trades", "Completed Trades", "Completion Rate", "Strikes", "Is Banned", "Created At"])
     
-    async for user in db.users.find().sort("created_at", -1).limit(5000):
+    async for user in db.users.find(query).sort("created_at", -1).limit(5000):
         writer.writerow([
             str(user["_id"]),
             user.get("username", ""),

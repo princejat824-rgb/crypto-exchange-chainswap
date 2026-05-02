@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { toast } from 'sonner';
-import { Users, TrendingUp, AlertTriangle, Package, Eye, Ban, CheckCircle, XCircle, BarChart3, List, Shield, Settings, Download, FileText } from 'lucide-react';
+import { Users, TrendingUp, AlertTriangle, Package, Eye, Ban, CheckCircle, XCircle, BarChart3, List, Shield, Settings, Download, FileText, Calendar } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -14,6 +14,8 @@ export default function AdminDashboard() {
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
 
   useEffect(() => { loadData(); }, [tab]);
 
@@ -305,36 +307,80 @@ export default function AdminDashboard() {
             {tab === 'reports' && (
               <div data-testid="admin-reports">
                 <h2 className="font-['Chivo'] text-2xl font-bold mb-6">Reports & Export</h2>
+
+                {/* Date Range Filter */}
+                <div className="bg-[#141414] rounded-2xl p-6 border border-white/5 mb-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Calendar className="w-5 h-5 text-[#4F8EF7]" />
+                    <h3 className="font-semibold">Date Range Filter</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-[#A1A1AA] mb-1 block">Start Date</label>
+                      <input
+                        type="date"
+                        value={exportStartDate}
+                        onChange={e => setExportStartDate(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-[#0A0A0A] border border-white/10 rounded-xl text-white text-sm focus:border-[#4F8EF7] focus:outline-none [color-scheme:dark]"
+                        data-testid="export-start-date"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#A1A1AA] mb-1 block">End Date</label>
+                      <input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={e => setExportEndDate(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-[#0A0A0A] border border-white/10 rounded-xl text-white text-sm focus:border-[#4F8EF7] focus:outline-none [color-scheme:dark]"
+                        data-testid="export-end-date"
+                      />
+                    </div>
+                  </div>
+                  {(exportStartDate || exportEndDate) && (
+                    <button
+                      onClick={() => { setExportStartDate(''); setExportEndDate(''); }}
+                      className="mt-3 text-xs text-[#A1A1AA] hover:text-white transition-colors"
+                      data-testid="clear-date-filter"
+                    >
+                      Clear date filter
+                    </button>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-[#141414] rounded-2xl p-6 border border-white/5">
                     <div className="flex items-center gap-3 mb-4">
                       <Download className="w-6 h-6 text-[#4F8EF7]" />
                       <h3 className="font-semibold text-lg">Trades Report</h3>
                     </div>
-                    <p className="text-[#A1A1AA] text-sm mb-6">Download all trades data as CSV. Includes buyer, seller, amounts, status, and dates.</p>
-                    <a
-                      href={`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/trades`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <p className="text-[#A1A1AA] text-sm mb-4">Download trades data as CSV. Includes buyer, seller, amounts, status, and dates.</p>
+                    {(exportStartDate || exportEndDate) && (
+                      <p className="text-xs text-[#4F8EF7] mb-4">Filtered: {exportStartDate || 'beginning'} to {exportEndDate || 'now'}</p>
+                    )}
+                    <button
                       className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#4F8EF7] text-white font-semibold rounded-full hover:bg-[#3B7BE8] transition-colors"
                       data-testid="export-trades-btn"
-                      onClick={(e) => {
-                        e.preventDefault();
+                      onClick={() => {
                         const token = localStorage.getItem('token');
-                        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/trades`, {
+                        let url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/export/trades`;
+                        const params = new URLSearchParams();
+                        if (exportStartDate) params.append('start_date', exportStartDate);
+                        if (exportEndDate) params.append('end_date', exportEndDate);
+                        if (params.toString()) url += `?${params.toString()}`;
+                        fetch(url, {
                           headers: { Authorization: `Bearer ${token}` },
                           credentials: 'include'
                         }).then(res => res.blob()).then(blob => {
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a'); a.href = url;
-                          a.download = `trades_export_${new Date().toISOString().slice(0,10)}.csv`;
-                          a.click(); window.URL.revokeObjectURL(url);
+                          const a = document.createElement('a');
+                          a.href = window.URL.createObjectURL(blob);
+                          a.download = `trades_export_${exportStartDate || 'all'}_to_${exportEndDate || 'now'}.csv`;
+                          a.click(); window.URL.revokeObjectURL(a.href);
                           toast.success('Trades CSV downloaded!');
                         }).catch(() => toast.error('Download failed'));
                       }}
                     >
                       <Download className="w-4 h-4" /> Export Trades CSV
-                    </a>
+                    </button>
                   </div>
                   
                   <div className="bg-[#141414] rounded-2xl p-6 border border-white/5">
@@ -342,20 +388,28 @@ export default function AdminDashboard() {
                       <Download className="w-6 h-6 text-[#10B981]" />
                       <h3 className="font-semibold text-lg">Users Report</h3>
                     </div>
-                    <p className="text-[#A1A1AA] text-sm mb-6">Download all users data as CSV. Includes username, email, trades, completion rate, and status.</p>
+                    <p className="text-[#A1A1AA] text-sm mb-4">Download users data as CSV. Includes username, email, trades, completion rate, and status.</p>
+                    {(exportStartDate || exportEndDate) && (
+                      <p className="text-xs text-[#10B981] mb-4">Filtered: {exportStartDate || 'beginning'} to {exportEndDate || 'now'}</p>
+                    )}
                     <button
                       className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#10B981] text-white font-semibold rounded-full hover:bg-[#059669] transition-colors"
                       data-testid="export-users-btn"
                       onClick={() => {
                         const token = localStorage.getItem('token');
-                        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/export/users`, {
+                        let url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/export/users`;
+                        const params = new URLSearchParams();
+                        if (exportStartDate) params.append('start_date', exportStartDate);
+                        if (exportEndDate) params.append('end_date', exportEndDate);
+                        if (params.toString()) url += `?${params.toString()}`;
+                        fetch(url, {
                           headers: { Authorization: `Bearer ${token}` },
                           credentials: 'include'
                         }).then(res => res.blob()).then(blob => {
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a'); a.href = url;
-                          a.download = `users_export_${new Date().toISOString().slice(0,10)}.csv`;
-                          a.click(); window.URL.revokeObjectURL(url);
+                          const a = document.createElement('a');
+                          a.href = window.URL.createObjectURL(blob);
+                          a.download = `users_export_${exportStartDate || 'all'}_to_${exportEndDate || 'now'}.csv`;
+                          a.click(); window.URL.revokeObjectURL(a.href);
                           toast.success('Users CSV downloaded!');
                         }).catch(() => toast.error('Download failed'));
                       }}
