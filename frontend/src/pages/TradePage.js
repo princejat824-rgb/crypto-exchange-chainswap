@@ -38,7 +38,7 @@ export default function TradePage() {
     if (!token || !tradeId) return;
 
     const wsUrl = process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
-    const ws = new WebSocket(`${wsUrl}/ws/trade/${tradeId}?token=${token}`);
+    const ws = new WebSocket(`${wsUrl}/api/ws/trade/${tradeId}?token=${token}`);
     
     ws.onopen = () => {
       setWsConnected(true);

@@ -839,7 +839,7 @@ async def send_message(trade_id: str, req: SendMessageRequest, request: Request)
 
 # ============ WEBSOCKET ENDPOINT ============
 
-@app.websocket("/ws/trade/{trade_id}")
+@app.websocket("/api/ws/trade/{trade_id}")
 async def websocket_trade(websocket: WebSocket, trade_id: str):
     """WebSocket endpoint for real-time trade chat and status updates"""
     # Authenticate via query param token
@@ -1333,6 +1333,7 @@ async def check_expired_trades():
                     logger.info(f"Trade {trade_id} auto-expired")
         except Exception as e:
             logger.error(f"Error in trade expiry check: {e}")
+            await asyncio.sleep(10)  # Back off on error
         
         await asyncio.sleep(30)  # Check every 30 seconds
 
