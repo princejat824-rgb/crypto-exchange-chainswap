@@ -1267,6 +1267,33 @@ async def admin_analytics(request: Request, days: int = 30):
     total_completed = sum(d.get("completed", 0) for d in daily_trades)
     total_new_users = sum(d.get("new_users", 0) for d in daily_users)
     
+    # Previous period comparison for trends
+    prev_start = start - timedelta(days=days)
+    prev_pipeline = [
+        {"$match": {"created_at": {"$gte": prev_start, "$lt": start}}},
+        {"$group": {
+            "_id": None,
+            "trades_count": {"$sum": 1},
+            "volume_inr": {"$sum": "$amount_inr"},
+            "completed": {"$sum": {"$cond": [{"$eq": ["$status", "COMPLETED"]}, 1, 0]}},
+        }},
+    ]
+    prev_result = await db.trades.aggregate(prev_pipeline).to_list(1)
+    prev_volume = prev_result[0]["volume_inr"] if prev_result else 0
+    prev_trades = prev_result[0]["trades_count"] if prev_result else 0
+    
+    prev_users_pipeline = [
+        {"$match": {"created_at": {"$gte": prev_start, "$lt": start}}},
+        {"$group": {"_id": None, "count": {"$sum": 1}}},
+    ]
+    prev_users_result = await db.users.aggregate(prev_users_pipeline).to_list(1)
+    prev_new_users = prev_users_result[0]["count"] if prev_users_result else 0
+    
+    def calc_trend(current, previous):
+        if previous == 0:
+            return 100.0 if current > 0 else 0.0
+        return round(((current - previous) / previous) * 100, 1)
+    
     return {
         "daily_trades": [{"date": d["_id"], "trades": d["trades_count"], "volume_inr": d["volume_inr"], "volume_usdt": d["volume_usdt"], "completed": d["completed"], "disputed": d["disputed"]} for d in daily_trades],
         "daily_users": [{"date": d["_id"], "new_users": d["new_users"]} for d in daily_users],
@@ -1279,6 +1306,11 @@ async def admin_analytics(request: Request, days: int = 30):
             "total_completed": total_completed,
             "total_new_users": total_new_users,
             "completion_rate": round((total_completed / total_trades * 100) if total_trades > 0 else 0, 1),
+        },
+        "trends": {
+            "volume_change": calc_trend(total_volume, prev_volume),
+            "trades_change": calc_trend(total_trades, prev_trades),
+            "users_change": calc_trend(total_new_users, prev_new_users),
         },
         "period_days": days,
     }

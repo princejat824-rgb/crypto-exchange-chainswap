@@ -325,15 +325,25 @@ export default function AdminDashboard() {
                 {/* Analytics Charts */}
                 {analytics && (
                   <>
-                    {/* Summary Cards */}
+                    {/* Summary Cards with Trends */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                       <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
                         <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Total Volume</p>
                         <p className="text-2xl font-bold font-['Chivo'] mt-1 text-[#4F8EF7]">₹{(analytics.summary.total_volume_inr || 0).toLocaleString()}</p>
+                        {analytics.trends && (
+                          <p className={`text-xs mt-1 font-medium ${analytics.trends.volume_change >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`} data-testid="volume-trend">
+                            {analytics.trends.volume_change >= 0 ? '↑' : '↓'} {Math.abs(analytics.trends.volume_change)}% vs prev {analyticsPeriod}d
+                          </p>
+                        )}
                       </div>
                       <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
                         <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Total Trades</p>
                         <p className="text-2xl font-bold font-['Chivo'] mt-1">{analytics.summary.total_trades}</p>
+                        {analytics.trends && (
+                          <p className={`text-xs mt-1 font-medium ${analytics.trends.trades_change >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`} data-testid="trades-trend">
+                            {analytics.trends.trades_change >= 0 ? '↑' : '↓'} {Math.abs(analytics.trends.trades_change)}% vs prev {analyticsPeriod}d
+                          </p>
+                        )}
                       </div>
                       <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
                         <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">Completion Rate</p>
@@ -342,6 +352,11 @@ export default function AdminDashboard() {
                       <div className="bg-[#141414] rounded-2xl p-5 border border-white/5">
                         <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">New Users</p>
                         <p className="text-2xl font-bold font-['Chivo'] mt-1 text-[#F59E0B]">{analytics.summary.total_new_users}</p>
+                        {analytics.trends && (
+                          <p className={`text-xs mt-1 font-medium ${analytics.trends.users_change >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`} data-testid="users-trend">
+                            {analytics.trends.users_change >= 0 ? '↑' : '↓'} {Math.abs(analytics.trends.users_change)}% vs prev {analyticsPeriod}d
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -391,7 +406,7 @@ export default function AdminDashboard() {
                     </div>
 
                     {/* Breakdowns Row */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                       {/* Payment Method Breakdown */}
                       <div className="bg-[#141414] rounded-2xl p-6 border border-white/5" data-testid="payment-breakdown">
                         <h3 className="font-semibold mb-4">Payment Methods</h3>
@@ -406,6 +421,41 @@ export default function AdminDashboard() {
                               <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} />
                             </PieChart>
                           </ResponsiveContainer>
+                        ) : (
+                          <p className="text-[#A1A1AA] text-sm text-center py-8">No data</p>
+                        )}
+                      </div>
+
+                      {/* Network Breakdown */}
+                      <div className="bg-[#141414] rounded-2xl p-6 border border-white/5" data-testid="network-breakdown">
+                        <h3 className="font-semibold mb-4">Network Usage</h3>
+                        {analytics.network_breakdown.length > 0 ? (
+                          <>
+                            <ResponsiveContainer width="100%" height={140}>
+                              <BarChart data={analytics.network_breakdown} layout="vertical">
+                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                                <XAxis type="number" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
+                                <YAxis type="category" dataKey="network" tick={{ fill: '#A1A1AA', fontSize: 11 }} width={55} />
+                                <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', color: '#fff' }} formatter={(v) => [v, 'Trades']} />
+                                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                                  {analytics.network_breakdown.map((entry, i) => (
+                                    <Cell key={i} fill={entry.network === 'TRC20' ? '#EF4444' : entry.network === 'ERC20' ? '#627EEA' : '#F3BA2F'} />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                            <div className="mt-3 space-y-2">
+                              {analytics.network_breakdown.map(n => (
+                                <div key={n.network} className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: n.network === 'TRC20' ? '#EF4444' : n.network === 'ERC20' ? '#627EEA' : '#F3BA2F' }}></div>
+                                    <span className="text-[#A1A1AA]">{n.network}</span>
+                                  </div>
+                                  <span className="font-medium">₹{n.volume.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </>
                         ) : (
                           <p className="text-[#A1A1AA] text-sm text-center py-8">No data</p>
                         )}
