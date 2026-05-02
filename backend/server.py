@@ -258,6 +258,10 @@ class CreateOfferRequest(BaseModel):
 @api_router.post("/offers")
 async def create_offer(req: CreateOfferRequest, request: Request):
     user = await get_current_user(request)
+    if req.price_inr <= 0 or req.available_usdt <= 0 or req.min_limit_inr <= 0 or req.max_limit_inr <= 0:
+        raise HTTPException(status_code=400, detail="All amounts must be greater than 0")
+    if req.min_limit_inr > req.max_limit_inr:
+        raise HTTPException(status_code=400, detail="Min limit cannot exceed max limit")
     offer_doc = {
         "user_id": user["id"],
         "username": user["username"],
@@ -290,8 +294,6 @@ async def list_offers(type: Optional[str] = None, payment_method: Optional[str] 
     sort_field = "price_inr" if sort_by == "price" else "created_at"
     sort_dir = 1 if type == "sell" else -1
     
-    offers = await db.offers.find(query, {"_id": 0}).sort(sort_field, sort_dir).to_list(100)
-    # Add id field
     offers_with_id = []
     async for offer in db.offers.find(query).sort(sort_field, sort_dir).limit(100):
         o = {k: v for k, v in offer.items() if k != "_id"}
@@ -370,7 +372,17 @@ async def initiate_trade(req: InitiateTradeRequest, request: Request):
     if offer["user_id"] == user["id"]:
         raise HTTPException(status_code=400, detail="Cannot trade with yourself")
     
+    if req.amount_usdt <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if req.amount_usdt > offer["available_usdt"]:
+        raise HTTPException(status_code=400, detail="Amount exceeds available USDT")
+    
     amount_inr = req.amount_usdt * offer["price_inr"]
+    
+    if amount_inr < offer["min_limit_inr"]:
+        raise HTTPException(status_code=400, detail=f"Minimum trade amount is ₹{offer['min_limit_inr']}")
+    if amount_inr > offer["max_limit_inr"]:
+        raise HTTPException(status_code=400, detail=f"Maximum trade amount is ₹{offer['max_limit_inr']}")
     
     # Determine buyer/seller based on offer type
     if offer["type"] == "sell":
