@@ -1,0 +1,162 @@
+{
+  "theme_and_archetype": {
+    "domain": "Crypto, P2P Trading",
+    "theme": "hybrid (Dark Homepage & Admin, Light Inner Pages)",
+    "archetype": "Archetype 7 (Electric & Neon) adapted for LocalCoinSwap P2P Trading",
+    "reasoning": "The user explicitly requested a hybrid theme with a dark black homepage featuring purple and blue background blobs, combined with light gray inner pages and a dark admin dashboard. This demands a custom approach borrowing from high-contrast Web3 aesthetics but anchoring it with functional, approachable light pages for complex trading tables."
+  },
+  "colors": {
+    "primary": {
+      "DEFAULT": "#4F8EF7",
+      "hover": "#3B7BE8",
+      "foreground": "#FFFFFF"
+    },
+    "blobs": {
+      "purple": "#9D4CDD",
+      "blue": "#4F8EF7"
+    },
+    "background": {
+      "dark_base": "#0A0A0A",
+      "dark_card": "#141414",
+      "light_base": "#F0F2F5",
+      "light_card": "#FFFFFF"
+    },
+    "text": {
+      "dark_bg": "#FFFFFF",
+      "dark_muted": "#A1A1AA",
+      "light_bg": "#111827",
+      "light_muted": "#6B7280"
+    },
+    "state": {
+      "success": "#10B981",
+      "danger": "#EF4444",
+      "warning": "#F59E0B"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "headings": "Chivo",
+      "body": "Inter",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-black",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "h4": "text-lg sm:text-xl font-semibold",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground uppercase tracking-widest font-semibold"
+    }
+  },
+  "spacing_and_layout": {
+    "container_padding": "px-4 md:px-8 lg:px-12",
+    "section_spacing": "py-20 md:py-32",
+    "card_padding": "p-6 md:p-8",
+    "border_radius": {
+      "buttons": "rounded-full",
+      "cards": "rounded-2xl",
+      "inputs": "rounded-xl",
+      "badges": "rounded-full"
+    },
+    "grid_modes": {
+      "homepage_hero": "grid grid-cols-1 lg:grid-cols-2 gap-12 items-center",
+      "dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "trade_split": "grid grid-cols-1 lg:grid-cols-12 gap-8"
+    }
+  },
+  "component_strategies": {
+    "buttons": "Pill-shaped (rounded-full). Primary buttons should use the exact #4F8EF7 blue. Hover states should slightly darken the background or add a subtle glow.",
+    "cards": "For the light inner pages, use clean white cards (#FFFFFF) with very subtle shadows (shadow-sm) on the light gray background (#F0F2F5). For dark pages, use #141414 with 1px border-white/5.",
+    "homepage_blobs": "Use fixed or absolute positioning with large width/height, border-radius 50%, bg-gradient-to-r, and filter: blur(120px) to create the ambient purple and blue blobs requested by the user. Place purple on the left and blue on the right.",
+    "tables": "Use Shadcn Table components. High contrast between headers and rows. Ensure the buy/sell buttons within the table are prominent.",
+    "forms": "Use Shadcn Forms with Inputs, Selects, etc. Form inputs should have rounded-xl borders.",
+    "trade_chat": "A split layout. Left (or lg:col-span-8): Chat interface with message bubbles. Right (or lg:col-span-4): Trade details, status, payment info, and action buttons.",
+    "navigation": "Sticky glassmorphism header. backdrop-blur-xl bg-black/60 for the dark homepage, bg-white/70 for light pages. Must contain a prominent CTA for 'Create Offer'."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Cards should have a subtle upward transform (-translate-y-1) and increased shadow. Buttons must have clearly defined hover colors.",
+    "page_transitions": "Smooth fade-ins for sections.",
+    "chat": "New messages should slide up and fade in.",
+    "accessibility": "Respect prefers-reduced-motion. Ensure all focus states have ring-2 ring-primary offset."
+  },
+  "pages_to_build": [
+    {
+      "name": "Homepage",
+      "theme": "Dark",
+      "details": "Dark black background. Left purple blob (#9D4CDD), right blue blob (#4F8EF7). Stats bar. Crypto listing table with Buy/Sell pill buttons. Network cards for Ethereum, BSC, Tron."
+    },
+    {
+      "name": "Buy/Sell USDT Pages",
+      "theme": "Light",
+      "details": "Light gray background (#f0f2f5). Clean tables with filters (currency, payment method, amount). White cards."
+    },
+    {
+      "name": "Trade Page",
+      "theme": "Light",
+      "details": "Split layout. Interactive chat UI with another user. Real-time feel. Trade details and release/cancel action buttons."
+    },
+    {
+      "name": "Create Offer",
+      "theme": "Light",
+      "details": "Multi-step or single-page form to create a buy/sell offer. Pricing strategy, limits, and payment methods."
+    },
+    {
+      "name": "User Dashboard",
+      "theme": "Light",
+      "details": "Overview of active trades, past history, wallet balances, user profile, and notifications."
+    },
+    {
+      "name": "Admin Dashboard",
+      "theme": "Dark",
+      "details": "Dark themed for admins. Manage users, oversee trades, handle dispute resolutions."
+    },
+    {
+      "name": "Auth Pages",
+      "theme": "Light/Dark hybrid",
+      "details": "Login and Registration pages."
+    }
+  ],
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1740252117044-2af197eea287?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjB1c2VyJTIwYXZhdGFyfGVufDB8fHx8MTc3NzcxMTM3N3ww&ixlib=rb-4.1.0&q=85",
+        "description": "User Avatar 1",
+        "category": "avatars"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1707396172424-f3293f788364?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB1c2VyJTIwYXZhdGFyfGVufDB8fHx8MTc3NzcxMTM3N3ww&ixlib=rb-4.1.0&q=85",
+        "description": "User Avatar 2",
+        "category": "avatars"
+      },
+      {
+        "url": "https://images.pexels.com/photos/6146051/pexels-photo-6146051.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Professional User Avatar",
+        "category": "avatars"
+      }
+    ],
+    "placeholders": [
+      {
+        "url": "https://images.unsplash.com/photo-1748609664795-11546ad62000?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHw0fHxjcnlwdG8lMjB0cmFkaW5nJTIwcGxhdGZvcm18ZW58MHx8fHwxNzc3NzExMzc3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Crypto Trading Analytics",
+        "category": "backgrounds"
+      }
+    ]
+  },
+  "icons": {
+    "library": "lucide-react",
+    "instructions": "Use lucide-react for standard UI icons. For crypto logos (USDT, ETH, BTC, TRX, BNB), try to use simple colored SVG components directly or lucide-react approximations if SVGs are unavailable."
+  },
+  "testing": {
+    "data_testid_requirement": "All interactive and key informational elements MUST include a data-testid attribute using kebab-case, role-based naming (e.g., data-testid='buy-usdt-button', data-testid='chat-message-input')."
+  },
+  "instructions_to_main_agent": [
+    "Build the application using React and Tailwind CSS.",
+    "Ensure the homepage has a strict dark theme (#0A0A0A) with the requested CSS blur blobs (purple on left, blue on right) behind the main hero and content.",
+    "Implement the 'pill-shaped' buttons using `rounded-full` everywhere a button appears.",
+    "For the inner pages (Buy/Sell, Trade, Create Offer, Dashboard), strictly use light mode with a #F0F2F5 background and #FFFFFF cards.",
+    "The Admin dashboard must be entirely dark-themed.",
+    "Construct the trade page with a split layout: Chat interface on one side, Trade details on the other.",
+    "Use Chivo for all headings and Inter for body text.",
+    "The color #4F8EF7 is the primary blue. Use it for the primary CTAs, active states, and links."
+  ]
+}
