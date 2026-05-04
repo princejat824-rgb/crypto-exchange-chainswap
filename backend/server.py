@@ -208,6 +208,8 @@ def serialize_user(user: dict) -> dict:
         result["created_at"] = result["created_at"].isoformat()
     if "last_seen" in result and isinstance(result["last_seen"], datetime):
         result["last_seen"] = result["last_seen"].isoformat()
+    # Verified Trader badge: 50+ completed trades
+    result["is_verified_trader"] = result.get("completed_trades", 0) >= 50
     return result
 
 # ============ AUTH ROUTES ============
@@ -476,6 +478,7 @@ async def list_offers(type: Optional[str] = None, payment_method: Optional[str] 
         user = await db.users.find_one({"_id": ObjectId(o["user_id"])}, {"_id": 0, "username": 1, "completed_trades": 1, "total_trades": 1, "completion_rate": 1, "last_seen": 1})
         if user:
             o["user_stats"] = user
+            o["user_stats"]["is_verified_trader"] = user.get("completed_trades", 0) >= 50
             if "last_seen" in o["user_stats"] and isinstance(o["user_stats"]["last_seen"], datetime):
                 o["user_stats"]["last_seen"] = o["user_stats"]["last_seen"].isoformat()
         offers_with_id.append(o)
@@ -1393,10 +1396,11 @@ async def admin_top_traders(request: Request, days: int = 30, limit: int = 10):
 
 @api_router.get("/top-traders")
 async def public_top_traders(days: int = 30, limit: int = 5):
-    """Public leaderboard - shows limited info"""
+    """Public leaderboard - shows limited info. Falls back to all-time top users if no completed trades in period."""
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     
+    # Try completed trades first
     pipeline = [
         {"$match": {"created_at": {"$gte": start}, "status": "COMPLETED"}},
         {"$group": {
@@ -1409,6 +1413,33 @@ async def public_top_traders(days: int = 30, limit: int = 5):
     ]
     top_sellers = await db.trades.aggregate(pipeline).to_list(limit)
     
+    # Fallback: get top users by completed_trades from users collection
+    if not top_sellers:
+        result = []
+        async for user in db.users.find({"completed_trades": {"$gt": 0}}).sort("completed_trades", -1).limit(limit):
+            result.append({
+                "rank": len(result) + 1,
+                "username": user.get("username", "Unknown"),
+                "completed_trades": user.get("completed_trades", 0),
+                "completion_rate": user.get("completion_rate", 0),
+                "volume_usdt": 0,
+                "is_verified_trader": user.get("completed_trades", 0) >= 50,
+            })
+        # If still empty, show users with active offers as "active traders"
+        if not result:
+            async for offer in db.offers.find({"is_active": True}).sort("created_at", -1).limit(limit):
+                user = await db.users.find_one({"_id": ObjectId(offer["user_id"])}, {"_id": 0, "username": 1, "completion_rate": 1, "completed_trades": 1, "total_trades": 1})
+                if user and not any(r["username"] == user.get("username") for r in result):
+                    result.append({
+                        "rank": len(result) + 1,
+                        "username": user.get("username", "Unknown"),
+                        "completed_trades": user.get("completed_trades", 0),
+                        "completion_rate": user.get("completion_rate", 0),
+                        "volume_usdt": offer.get("available_usdt", 0),
+                        "is_verified_trader": user.get("completed_trades", 0) >= 50,
+                    })
+        return result
+    
     result = []
     for i, t in enumerate(top_sellers):
         user = await db.users.find_one({"_id": ObjectId(t["_id"])}, {"_id": 0, "username": 1, "completion_rate": 1, "completed_trades": 1})
@@ -1419,6 +1450,7 @@ async def public_top_traders(days: int = 30, limit: int = 5):
                 "completed_trades": user.get("completed_trades", 0),
                 "completion_rate": user.get("completion_rate", 0),
                 "volume_usdt": t["volume_usdt"],
+                "is_verified_trader": user.get("completed_trades", 0) >= 50,
             })
     return result
 

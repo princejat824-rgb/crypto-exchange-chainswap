@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { User, Star, Clock, X } from 'lucide-react';
+import { User, Star, Clock, X, CheckCircle } from 'lucide-react';
 import { useAuth, api } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import axios from 'axios';
@@ -97,6 +97,11 @@ export default function SellPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <Link to={`/user/${offer.username}`} className="font-semibold text-gray-900 hover:text-[#4F8EF7]">{offer.username}</Link>
+                        {offer.user_stats?.is_verified_trader && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-[#10B981]/10 text-[#10B981] rounded-full text-[10px] font-semibold" title="Verified Trader - 50+ completed trades">
+                            <CheckCircle className="w-2.5 h-2.5" /> Verified
+                          </span>
+                        )}
                         <span className="w-2 h-2 rounded-full bg-[#10B981]"></span>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">

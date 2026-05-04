@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { Shield, ArrowRightLeft, Headphones, TrendingUp } from 'lucide-react';
+import { Shield, ArrowRightLeft, Headphones, TrendingUp, Award, CheckCircle } from 'lucide-react';
 import axios from 'axios';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function HomePage() {
   const [stats, setStats] = useState({ total_offers: 0, total_volume_inr: 0, payment_methods: 6 });
+  const [topTraders, setTopTraders] = useState([]);
 
   useEffect(() => {
     axios.get(`${API}/api/stats`).then(r => setStats(r.data)).catch(() => {});
+    axios.get(`${API}/api/top-traders?days=90&limit=5`).then(r => setTopTraders(r.data)).catch(() => {});
   }, []);
 
   return (
@@ -137,6 +139,53 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Top Traders Leaderboard */}
+      {topTraders.length > 0 && (
+        <section className="relative z-10 py-16 px-4 border-t border-white/5" data-testid="top-traders-section">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-10">
+              <h2 className="font-['Chivo'] text-3xl font-bold mb-3">Top Traders</h2>
+              <p className="text-[#A1A1AA]">Our most trusted community members</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {topTraders.map(trader => (
+                <Link to={`/user/${trader.username}`} key={trader.rank} className="bg-[#141414] rounded-2xl p-5 border border-white/5 hover:border-[#4F8EF7]/30 hover:-translate-y-1 transition-all group" data-testid={`top-trader-${trader.rank}`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${trader.rank === 1 ? 'bg-[#F59E0B]/20 text-[#F59E0B]' : trader.rank === 2 ? 'bg-[#A1A1AA]/20 text-[#A1A1AA]' : trader.rank === 3 ? 'bg-[#CD7F32]/20 text-[#CD7F32]' : 'bg-[#4F8EF7]/10 text-[#4F8EF7]'}`}>
+                      #{trader.rank}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <p className="font-semibold text-white text-sm truncate group-hover:text-[#4F8EF7] transition-colors">{trader.username}</p>
+                        {trader.is_verified_trader && (
+                          <CheckCircle className="w-3.5 h-3.5 text-[#4F8EF7] flex-shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#A1A1AA]">Trades</span>
+                      <span className="text-white font-medium">{trader.completed_trades}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#A1A1AA]">Rate</span>
+                      <span className={`font-medium ${trader.completion_rate >= 90 ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>{trader.completion_rate}%</span>
+                    </div>
+                    {trader.volume_usdt > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-[#A1A1AA]">Volume</span>
+                        <span className="text-[#4F8EF7] font-medium">{trader.volume_usdt.toFixed(0)} USDT</span>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="relative z-10 py-8 px-4 border-t border-white/5 text-center text-[#A1A1AA] text-sm">

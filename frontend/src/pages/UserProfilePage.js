@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { Star, Clock, CheckCircle, User } from 'lucide-react';
+import { Star, Clock, CheckCircle, User, Award } from 'lucide-react';
 import axios from 'axios';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -41,7 +41,14 @@ export default function UserProfilePage() {
               <User className="w-8 h-8 text-[#4F8EF7]" />
             </div>
             <div>
-              <h1 className="font-['Chivo'] text-2xl font-bold text-gray-900" data-testid="profile-username">{profile.username}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-['Chivo'] text-2xl font-bold text-gray-900" data-testid="profile-username">{profile.username}</h1>
+                {profile.is_verified_trader && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#4F8EF7]/10 text-[#4F8EF7] rounded-full text-xs font-semibold" data-testid="verified-badge">
+                    <Award className="w-3.5 h-3.5" /> Verified Trader
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-500">Member since {profile.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}</p>
             </div>
           </div>
